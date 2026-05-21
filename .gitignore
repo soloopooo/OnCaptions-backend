@@ -1,0 +1,4 @@
+target
+models/
+.cargo/
+sherpa-onnx-libs/

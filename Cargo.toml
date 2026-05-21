@@ -1,0 +1,24 @@
+[package]
+name = "oncaptions-backend"
+version = "0.2.0"
+edition = "2024"
+
+[[example]]
+name = "test_streaming"
+path = "examples/test_streaming.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sherpa-onnx = "1.13.2"
+cpal = { git = "https://github.com/RustAudio/cpal", rev = "1c40a85e2e74b376c6b35eef8d111586d426a61f", features = ["pipewire"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+pulsectl-rs = "0.3.2"
+ureq = { version = "2", features = ["json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
