@@ -72,18 +72,7 @@ RUST_LOG=debug cargo run
 
 ## 模型
 
-### 内置模型（已下载）
-
-| 目录 | 类型 | 语言 | 模式 |
-|------|------|------|------|
-| `models/ja/` | Streaming Zipformer int8 | 日语 | Streaming |
-| `models/multi/` | Streaming Zipformer int8 | 多语言（含日） | Streaming |
-| `models/zh-en/` | Streaming Zipformer | 中英 | Streaming |
-| `models/parakeet/` | NeMo Parakeet int8 | 英语 | Streaming |
-| `models/sherpa-zipformer-en/` | Streaming Zipformer | 英语 | Streaming |
-| `models/sensevoice/` | SenseVoice | 中英日韩粤 | VadOffline |
-| `models/ja-reazonspeech/` | **Offline Zipformer int8** | 日语 | **VadOffline** |
-| `models/silero_vad/` | Silero VAD ONNX | — | VadOffline |
+模型需手动下载，不在仓库中。推荐模型见下方列表。
 
 ### 一键下载脚本
 
