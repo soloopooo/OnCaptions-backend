@@ -1,66 +1,55 @@
 # oncaptions-backend (sherpa-onnx)
 
-> 模型文件不包含在 git 仓库中。首次使用需手动下载模型（见下方「模型」章节）。
+> 模型文件不包含在 git 仓库中。首次使用需手动下载（见下方「模型」章节）。
 
 流式语音转写后端。支持两种 Pipeline Mode：
 
 - **Streaming** — `OnlineRecognizer`（Zipformer Transducer），逐词输出，低延迟
 - **VadOffline** — Silero VAD + `OfflineRecognizer`（ReazonSpeech Zipformer），VAD 攒段 → 整段推理，高精度
 
-与前端通过 WebSocket（127.0.0.1:9876）通信。
+与前端通过 WebSocket（127.0.0.1 端口自动 fallback 9876~9899）通信。
 
 ## 前置条件
 
-- Rust 1.75+（edition 2024）
+- Rust 1.85+（edition 2024）
 - PipeWire 运行时（`libpipewire`）
-- sherpa-onnx 预编译库
+- sherpa-onnx 预编译库（`scripts/download_libs.sh` 自动下载）
 
 ## 目录结构
 
 ```
-backend-sherpa/
+oncaptions-backend-sherpa/
 ├── src/
 │   ├── main.rs              # 入口 + --check-model 子进程验证
 │   ├── config/mod.rs         # PipelineConfig, PipelineMode, VadParams
-│   ├── ipc/server.rs         # WebSocket 消息处理
+│   ├── ipc/server.rs         # WebSocket 消息处理 + 端口 fallback
 │   ├── pipeline/mod.rs       # Pipeline 状态机 + Streaming/VadOffline 实现
 │   ├── audio/
 │   │   ├── capture.rs        # cpal PipeWire 音频采集
 │   │   ├── enumerator.rs     # 设备枚举（PulseAudio → cpal fallback）
 │   │   └── mod.rs
 │   └── translation/          # 翻译模块（OpenAI API）
-├── models/                   # 模型目录（见下方）
-├── sherpa-onnx-libs/         # sherpa-onnx 预编译库
+├── scripts/
+│   ├── download_libs.sh      # 下载 sherpa-onnx 静态库
+│   └── download_models.sh    # 下载 ASR 模型
+├── models/                   # 模型目录（手动放置）
+├── sherpa-onnx-libs/         # 静态库（gitignored，脚本下载）
 └── examples/                 # 测试示例
 ```
-
-## 前置条件
-
-- Rust 1.75+（edition 2024）
-- PipeWire 运行时（`libpipewire`）
-- sherpa-onnx 预编译库（已包含在 `sherpa-onnx-libs/`）
 
 ## 构建
 
 ```bash
-cd backend-sherpa
+cd oncaptions-backend-sherpa
 
-# 首次构建需要指定 sherpa-onnx 库路径
-SHERPA_ONNX_LIB_DIR="$PWD/sherpa-onnx-libs/sherpa-onnx-v1.13.2-linux-x64-static-lib/lib" cargo build
+# 首次构建：下载 sherpa-onnx 静态库
+bash scripts/download_libs.sh
+
+# 构建后端
+SHERPA_ONNX_LIB_DIR="$PWD/sherpa-onnx-libs/sherpa-onnx-v1.13.2-linux-x64-static-lib/lib" cargo build --release
 ```
 
-你也可以在 `.cargo/config.toml` 中固化该路径（注意该文件已从 git 中排除，不会上传）：
-
-```toml
-[env]
-SHERPA_ONNX_LIB_DIR = "/home/user/oncaptions/backend-sherpa/sherpa-onnx-libs/sherpa-onnx-v1.13.2-linux-x64-static-lib/lib"
-```
-
-之后每次构建只需：
-
-```bash
-cargo build
-```
+推荐通过前端 `npm run build:backend` 构建（自动跑 download + cargo build + 拷贝到 `backend-bin/`）。
 
 ## 运行
 
@@ -72,26 +61,25 @@ RUST_LOG=debug cargo run
 
 ## 模型
 
-模型需手动下载，不在仓库中。推荐模型见下方列表。
+模型需手动下载，不在仓库中（`models/` 已 gitignored）。
 
 ### 一键下载脚本
 
 ```bash
-# 下载所有推荐模型
 bash scripts/download_models.sh
-
-# 或按需下载
-# Streaming 日语
-wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2
-tar xf sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2
-rm sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2
-
-# 创建标准文件名 symlink（model_paths() 要求 encoder.onnx/decoder.onnx/joiner.onnx）
-cd models/<your-model-dir>
-ln -s encoder-*.onnx encoder.onnx
-ln -s decoder-*.onnx decoder.onnx
-ln -s joiner-*.onnx joiner.onnx
 ```
+
+下载的模型放入 `models/` 目录，保证目录结构如下：
+
+```
+models/<your-model-dir>/
+├── encoder.onnx
+├── decoder.onnx
+├── joiner.onnx
+└── tokens.txt
+```
+
+各模型目录名示例：`models/ja/`、`models/zh-en/`、`models/ja-reazonspeech/`、`models/silero_vad/`。
 
 ### 模型路径约定
 
@@ -113,7 +101,6 @@ VAD 模型路径固定为 `models/silero_vad/silero_vad.onnx`（CWD 或 exe 相�
 {
   "type": "start_pipeline",
   "model_dir": "/abs/path/to/models/ja",
-  "language": "ja",
   "audio_backend": "pipewire",
   "pipeline_mode": "streaming"
 }
@@ -128,7 +115,6 @@ VAD 模型路径固定为 `models/silero_vad/silero_vad.onnx`（CWD 或 exe 相�
   "type": "start_pipeline",
   "model_dir": "/abs/path/to/models/ja-reazonspeech",
   "pipeline_mode": "vad_offline",
-  "language": "ja",
   "audio_backend": "pipewire",
   "vad_threshold": 0.4,
   "vad_min_silence_duration": 0.8,
@@ -148,23 +134,25 @@ VAD 模型路径固定为 `models/silero_vad/silero_vad.onnx`（CWD 或 exe 相�
                      pipeline_mode?, vad_*?, translation? }
 → stop_pipeline:   { type: "stop_pipeline" }
 → list_devices:    { type: "list_devices" }
+→ shutdown:        { type: "shutdown" }       // 优雅关闭
 
-← transcription:   { type: "transcription", text, tokens?, is_final }
-← translations:    { type: "translation", original, text, ... }
-← pipeline_status: { type: "pipeline_status", state: "running"|"stopped"|"error" }
-← error:           { type: "error", code, message }
-← device_list:     { type: "device_list", devices: [...] }
+← transcription:   { type, text, tokens?, is_final }
+← translation:     { type, original, text, provider_display, target_lang }
+← pipeline_status: { type, state: "running"|"stopped"|"error" }
+← error:           { type, error, code, message }
+← device_list:     { type, devices: [...] }
+← shutdown:        { type: "shutdown", ack: true }
 ```
+
+> `language` 已在 WS 消息中标记为可选字段，前端不再发送。
+
+## 端口分配
+
+后端启动时尝试绑定 9876~9899，成功后写入 `/tmp/oncaptions-port`。前端通过该文件获取实际端口。
 
 ## 测试
 
 ```bash
-# 单元测试
-cargo test
-
-# 快速测试某 Streaming 模型
-cargo run --example test_streaming -- models/ja test_wavs/ja.wav
-
 # 手动发 WS 消息测试
 python3 test_ws.py
 ```
@@ -176,3 +164,5 @@ python3 test_ws.py
 - ASR 推理：`std::thread` + `std::sync::mpsc` 与 async 主循环通信
 - 模型加载：`std::process::Command` 子进程预校验（防 C++ abort 杀主进程）
 - 翻译：独立线程池，缓存 SQLite
+- 优雅关闭：WS `shutdown` 消息 → pipeline stop + oneshot 等待 → server shutdown
+- 端口 fallback：循环 bind 9876~9899，写 `/tmp/oncaptions-port`
