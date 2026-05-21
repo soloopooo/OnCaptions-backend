@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TranscriptionEvent {
@@ -41,6 +41,7 @@ pub struct PipelineHandle {
 struct PipelineInner {
     running: bool,
     shutdown_tx: Option<watch::Sender<bool>>,
+    stopped_rx: Option<oneshot::Receiver<()>>,
     state: PipelineState,
 }
 
@@ -57,6 +58,7 @@ impl PipelineHandle {
             inner: Arc::new(Mutex::new(PipelineInner {
                 running: false,
                 shutdown_tx: None,
+                stopped_rx: None,
                 state: PipelineState::Idle,
             })),
         }
@@ -78,7 +80,9 @@ impl PipelineHandle {
         inner.running = true;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (stopped_tx, stopped_rx) = oneshot::channel();
         inner.shutdown_tx = Some(shutdown_tx);
+        inner.stopped_rx = Some(stopped_rx);
 
         let this = self.clone();
         tokio::spawn(async move {
@@ -89,18 +93,25 @@ impl PipelineHandle {
             inner.running = false;
             inner.shutdown_tx = None;
             inner.state = PipelineState::Idle;
+            let _ = stopped_tx.send(());
         });
 
         Ok(())
     }
 
-    pub fn stop(&self) {
-        let mut inner = self.inner.lock().unwrap();
-        if let Some(tx) = inner.shutdown_tx.take() {
-            let _ = tx.send(true);
+    pub async fn stop(&self) {
+        let rx = {
+            let mut inner = self.inner.lock().unwrap();
+            if let Some(tx) = inner.shutdown_tx.take() {
+                let _ = tx.send(true);
+            }
+            inner.running = false;
+            inner.state = PipelineState::Idle;
+            inner.stopped_rx.take()
+        };
+        if let Some(rx) = rx {
+            let _ = rx.await;
         }
-        inner.running = false;
-        inner.state = PipelineState::Idle;
     }
 
     pub fn is_running(&self) -> bool {

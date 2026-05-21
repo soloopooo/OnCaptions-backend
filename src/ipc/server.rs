@@ -262,7 +262,7 @@ async fn handle_message(
         }
 
         "stop_pipeline" => {
-            pipeline.stop();
+            pipeline.stop().await;
             Ok(Some(serde_json::json!({
                 "type": "pipeline_status",
                 "state": "stopped",

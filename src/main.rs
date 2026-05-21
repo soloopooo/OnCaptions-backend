@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     }
     tracing::info!("shutting down");
 
-    pipeline.stop();
+    pipeline.stop().await;
     ws_server.shutdown().await;
 
     let _ = std::fs::remove_file("/tmp/oncaptions-port");
