@@ -9,7 +9,8 @@ mod translation;
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
-const WS_ADDR: &str = "127.0.0.1:9876";
+const WS_HOST: &str = "127.0.0.1";
+const WS_BASE_PORT: u16 = 9876;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,14 +27,23 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    tracing::info!("whiscap-backend starting");
+    tracing::info!("oncaptions-backend starting");
 
     let pipeline = pipeline::PipelineHandle::new();
-    let ws_server = ipc::start_server(WS_ADDR, pipeline.clone()).await?;
+    let (ws_server, _port) = ipc::start_server(WS_HOST, WS_BASE_PORT, pipeline.clone()).await?;
 
-    tokio::signal::ctrl_c().await?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = ws_server.wait_shutdown() => {
+            tracing::info!("shutdown via ws");
+        }
+    }
     tracing::info!("shutting down");
 
+    pipeline.stop();
     ws_server.shutdown().await;
+
+    let _ = std::fs::remove_file("/tmp/oncaptions-port");
+
     Ok(())
 }

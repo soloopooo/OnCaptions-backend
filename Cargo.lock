@@ -1098,6 +1098,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "oncaptions-backend"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "futures-util",
+ "pulsectl-rs",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sherpa-onnx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2011,26 +2031,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "whiscap-backend"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "cpal",
- "futures-util",
- "pulsectl-rs",
- "rusqlite",
- "serde",
- "serde_json",
- "sherpa-onnx",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "ureq",
 ]
 
 [[package]]

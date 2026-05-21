@@ -34,33 +34,74 @@ struct IncomingMessage {
 }
 
 pub async fn start_server(
-    addr: &str,
+    base_addr: &str,
+    base_port: u16,
     pipeline: PipelineHandle,
-) -> Result<Arc<WsServer>> {
-    let (shutdown_tx, _shutdown_rx) = watch::channel(false);
-    let listener = TcpListener::bind(addr).await?;
-    let server = Arc::new(WsServer { shutdown_tx });
+) -> Result<(Arc<WsServer>, u16)> {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
+    let max_port = base_port + 24;
+    let mut listener = None;
+    let mut port = base_port;
+    for p in base_port..=max_port {
+        let addr = format!("{base_addr}:{p}");
+        match TcpListener::bind(&addr).await {
+            Ok(l) => {
+                listener = Some(l);
+                port = p;
+                break;
+            }
+            Err(_) => continue,
+        }
+    }
+    let listener = listener.ok_or_else(|| {
+        anyhow::anyhow!("no available port in {base_port}..={max_port}")
+    })?;
+
+    let port_content = port.to_string();
+    if let Err(e) = std::fs::write("/tmp/oncaptions-port", &port_content) {
+        tracing::warn!("failed to write /tmp/oncaptions-port: {e}");
+    }
+
+    let server = Arc::new(WsServer { shutdown_tx });
+    let sv = server.clone();
+
+    let mut shutdown_rx = shutdown_rx;
     tokio::spawn(async move {
         loop {
-            match listener.accept().await {
-                Ok((stream, peer)) => {
-                    tracing::info!("ws client connected: {peer}");
-                    let pl = pipeline.clone();
-                    tokio::spawn(handle_connection(stream, pl));
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    if *shutdown_rx.borrow_and_update() {
+                        tracing::info!("ws server: shutting down accept loop");
+                        break;
+                    }
                 }
-                Err(e) => {
-                    tracing::error!("accept error: {e}");
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, peer)) => {
+                            tracing::info!("ws client connected: {peer}");
+                            let pl = pipeline.clone();
+                            let stx = sv.shutdown_tx.clone();
+                            tokio::spawn(handle_connection(stream, pl, stx));
+                        }
+                        Err(e) => {
+                            tracing::error!("accept error: {e}");
+                        }
+                    }
                 }
             }
         }
     });
 
-    tracing::info!("ws server listening on {addr}");
-    Ok(server)
+    tracing::info!("ws server listening on {base_addr}:{port}");
+    Ok((server, port))
 }
 
-async fn handle_connection(stream: tokio::net::TcpStream, pipeline: PipelineHandle) {
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    pipeline: PipelineHandle,
+    shutdown_tx: watch::Sender<bool>,
+) {
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .expect("ws handshake failed");
@@ -77,8 +118,13 @@ async fn handle_connection(stream: tokio::net::TcpStream, pipeline: PipelineHand
             msg = rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        match handle_message(&text, &pipeline, &event_tx, &tr_tx, &error_tx, &status_tx).await {
+                        match handle_message(&text, &pipeline, &event_tx, &tr_tx, &error_tx, &status_tx, &shutdown_tx).await {
                             Ok(Some(response)) => {
+                                if response.get("type") == Some(&serde_json::Value::String("shutdown".into())) {
+                                    let msg = response.to_string();
+                                    let _ = tx.send(Message::Text(msg)).await;
+                                    break;
+                                }
                                 let msg = response.to_string();
                                 let _ = tx.send(Message::Text(msg)).await;
                             }
@@ -152,6 +198,7 @@ async fn handle_message(
     translation_tx: &tokio::sync::mpsc::UnboundedSender<TranslationResult>,
     error_tx: &tokio::sync::mpsc::UnboundedSender<PipelineError>,
     status_tx: &tokio::sync::mpsc::UnboundedSender<PipelineStatus>,
+    shutdown_tx: &watch::Sender<bool>,
 ) -> Result<Option<serde_json::Value>> {
     let msg: IncomingMessage = serde_json::from_str(text)?;
 
@@ -230,6 +277,15 @@ async fn handle_message(
             })))
         }
 
+        "shutdown" => {
+            tracing::info!("shutdown requested via ws");
+            let _ = shutdown_tx.send(true);
+            Ok(Some(serde_json::json!({
+                "type": "shutdown",
+                "ack": true,
+            })))
+        }
+
         other => {
             anyhow::bail!("unknown message type: {other}");
         }
@@ -249,5 +305,10 @@ fn parse_backend(s: &str) -> Result<AudioBackend> {
 impl WsServer {
     pub async fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
+    }
+
+    pub async fn wait_shutdown(&self) {
+        let mut rx = self.shutdown_tx.subscribe();
+        let _ = rx.changed().await;
     }
 }
